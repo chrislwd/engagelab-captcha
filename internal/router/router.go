@@ -11,8 +11,11 @@ import (
 	"github.com/engagelab/captcha/internal/middleware"
 	"github.com/engagelab/captcha/internal/repository"
 	challengeEngine "github.com/engagelab/captcha/internal/service/challenge"
+	"github.com/engagelab/captcha/internal/service/events"
 	policyEngine "github.com/engagelab/captcha/internal/service/policy"
 	riskEngine "github.com/engagelab/captcha/internal/service/risk"
+	"github.com/engagelab/captcha/internal/service/sms"
+	threatIntel "github.com/engagelab/captcha/internal/service/threat_intel"
 	verifyService "github.com/engagelab/captcha/internal/service/verify"
 	"github.com/engagelab/captcha/internal/service/webhook"
 )
@@ -37,6 +40,15 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 	_ = webhook.NewService(webhookStore)
 	i18n := challengeEngine.NewI18n()
 
+	// SMS protection
+	smsProtector := sms.NewSMSProtector()
+
+	// Event streaming
+	eventStream := events.NewEventStream()
+
+	// Threat intelligence network
+	threatNetwork := threatIntel.NewThreatIntelNetwork()
+
 	// Handlers
 	precheckH := handler.NewPrecheckHandler(store, risk, policy, challenge)
 	challengeH := handler.NewChallengeHandler(store, challenge)
@@ -53,6 +65,9 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 	brandingH := handler.NewBrandingHandler(brandManager)
 	blocklistStore := handler.NewBlocklistStore()
 	blocklistH := handler.NewBlocklistHandler(blocklistStore)
+	smsH := handler.NewSMSHandler(smsProtector)
+	eventStreamH := handler.NewEventStreamHandler(eventStream)
+	_ = threatNetwork // used in routes below
 
 	// --- Health ---
 	r.GET("/health", func(c *gin.Context) {
@@ -144,6 +159,62 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 		console.POST("/blocklist", blocklistH.Create)
 		console.GET("/blocklist", blocklistH.List)
 		console.DELETE("/blocklist/:id", blocklistH.Delete)
+
+		// SMS abuse prevention
+		console.POST("/sms/check", smsH.Check)
+
+		// Event streaming
+		console.GET("/events/stream", eventStreamH.Stream)
+		console.GET("/events/recent", eventStreamH.Recent)
+
+		// Threat intelligence
+		console.POST("/threat-intel/report", func(c *gin.Context) {
+			var req struct {
+				IP          string `json:"ip"`
+				Fingerprint string `json:"fingerprint"`
+				ThreatType  string `json:"threat_type" binding:"required"`
+				Severity    int    `json:"severity" binding:"required"`
+			}
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+				return
+			}
+			// Use a hash of the API key as anonymous source identifier.
+			sourceHash := c.GetString("api_key_hash")
+			if sourceHash == "" {
+				sourceHash = "anonymous"
+			}
+			threatNetwork.ReportThreat(req.IP, req.Fingerprint, req.ThreatType, req.Severity, sourceHash)
+			c.JSON(http.StatusOK, gin.H{"status": "reported"})
+		})
+		console.GET("/threat-intel/ip/:ip", func(c *gin.Context) {
+			ip := c.Param("ip")
+			profile := threatNetwork.QueryIP(ip)
+			c.JSON(http.StatusOK, profile)
+		})
+		console.GET("/threat-intel/fingerprint/:fp", func(c *gin.Context) {
+			fp := c.Param("fp")
+			profile := threatNetwork.QueryFingerprint(fp)
+			c.JSON(http.StatusOK, profile)
+		})
+		console.GET("/threat-intel/top", func(c *gin.Context) {
+			top := threatNetwork.TopThreats(20)
+			c.JSON(http.StatusOK, gin.H{"threats": top})
+		})
+
+		// Policy templates
+		console.GET("/policy-templates", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"templates": policyEngine.ListTemplates()})
+		})
+		console.GET("/policy-templates/:industry", func(c *gin.Context) {
+			industry := c.Param("industry")
+			tmpl := policyEngine.GetTemplate(industry)
+			if tmpl == nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "unknown industry: " + industry})
+				return
+			}
+			c.JSON(http.StatusOK, tmpl)
+		})
 	}
 
 	// Public branding CSS (for SDK to fetch, no auth)
