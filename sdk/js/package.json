@@ -1,0 +1,15 @@
+{
+  "name": "@engagelab/captcha-sdk",
+  "version": "1.0.0",
+  "description": "EngageLab CAPTCHA JavaScript SDK - Smart CAPTCHA & Abuse Prevention",
+  "main": "dist/engagelab-captcha.js",
+  "types": "dist/engagelab-captcha.d.ts",
+  "files": ["dist/"],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

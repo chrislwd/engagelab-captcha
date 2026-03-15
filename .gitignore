@@ -1,0 +1,26 @@
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+.env
+.env.*
+!.env.example
+vendor/
+tmp/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Next.js
+web/console/.next/
+web/console/node_modules/
+
+# SDK
+sdk/js/dist/
+sdk/js/node_modules/
