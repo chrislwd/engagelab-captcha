@@ -39,7 +39,7 @@ Request → Risk Engine (6 signal layers) → Policy Engine → Decision
 
 Score is clamped to 0-100. Risk levels: low (0-15), medium (16-40), high (41-70), critical (71+).
 
-## API Endpoints (21)
+## API Endpoints (30)
 
 ### SDK Endpoints (site_key auth)
 | Method | Path | Description |
@@ -53,25 +53,51 @@ Score is clamped to 0-100. Risk levels: low (0-15), medium (16-40), high (41-70)
 |--------|------|-------------|
 | `POST` | `/v1/siteverify` | Validate challenge token (secret key) |
 
+### Auth (no auth required)
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/auth/register` | Register user + create org + default app |
+| `POST` | `/v1/auth/login` | Login with email/password |
+
 ### Console Management (API key auth)
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST/GET` | `/v1/apps` | Create / list applications |
-| `GET/DELETE` | `/v1/apps/:id` | Get / delete application |
-| `POST/GET` | `/v1/scenes` | Create / list scenes |
-| `POST/GET/DELETE` | `/v1/webhooks` | Manage webhooks |
+| `POST` | `/v1/apps` | Create application |
+| `GET` | `/v1/apps` | List applications |
+| `GET` | `/v1/apps/:id` | Get application |
+| `DELETE` | `/v1/apps/:id` | Delete application |
+| `POST` | `/v1/scenes` | Create scene |
+| `GET` | `/v1/scenes` | List scenes |
+| `GET` | `/v1/policies` | List policies |
+| `POST` | `/v1/webhooks` | Create webhook |
+| `GET` | `/v1/webhooks` | List webhooks |
+| `DELETE` | `/v1/webhooks/:id` | Delete webhook |
 | `POST` | `/v1/events/feedback` | Submit false positive/negative feedback |
+| `POST` | `/v1/account/api-keys` | Generate API key |
+| `GET` | `/v1/account/api-keys` | List API keys |
+
+### Analytics & Monitoring
+| Method | Path | Description |
+|--------|------|-------------|
 | `GET` | `/v1/stats/dashboard` | Dashboard statistics |
 | `GET` | `/v1/analytics/countries` | Per-country breakdown |
-| `GET` | `/v1/analytics/devices` | Browser/platform/OS breakdown |
+| `GET` | `/v1/analytics/devices` | Browser / platform / OS breakdown |
 | `GET` | `/v1/analytics/challenges` | Challenge type performance |
 | `GET` | `/v1/analytics/risk-trends` | 7-day risk trends |
 
-### Other
+### Attack Monitoring
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/v1/i18n/:lang` | Challenge UI translations |
+| `GET` | `/v1/threats` | List detected threats |
+| `GET` | `/v1/threats/dashboard` | Threat dashboard (timeline, top IPs, severity) |
+| `POST` | `/v1/threats/:id/mitigate` | Mark threat as mitigated |
+
+### Infrastructure
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/i18n/:lang` | Challenge UI translations (10 languages) |
 | `GET` | `/health` | Health check |
+| `GET` | `/metrics` | Prometheus metrics |
 
 ## Quick Start
 
@@ -103,7 +129,12 @@ docker-compose up -d
 
 ### Test the API
 ```bash
-# Risk precheck (normal user → pass)
+# Register a new account
+curl -X POST http://localhost:8080/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"dev@example.com","password":"SecureP@ss1","name":"Dev","company":"MyCo"}'
+
+# Risk precheck (normal user → pass, score=5)
 curl -X POST http://localhost:8080/v1/risk/precheck \
   -H "X-Site-Key: sk_demo_site_key_abc" \
   -H "Content-Type: application/json" \
@@ -116,7 +147,7 @@ curl -X POST http://localhost:8080/v1/risk/precheck \
     "behavior_data": {"mouse_moves":80,"clicks":4,"duration_ms":6000,"mouse_entropy":0.7}
   }'
 
-# Risk precheck (headless bot → deny)
+# Risk precheck (headless bot → deny, score=87)
 curl -X POST http://localhost:8080/v1/risk/precheck \
   -H "X-Site-Key: sk_demo_site_key_abc" \
   -H "Content-Type: application/json" \
@@ -132,6 +163,10 @@ curl -X POST http://localhost:8080/v1/risk/precheck \
 curl -X POST http://localhost:8080/v1/siteverify \
   -H "Content-Type: application/json" \
   -d '{"token": "<token_from_precheck>", "secret": "sec_demo_secret_key_xyz"}'
+
+# View threat dashboard
+curl http://localhost:8080/v1/threats/dashboard \
+  -H "X-API-Key: ak_demo_key_123456"
 ```
 
 ### Run Tests
@@ -139,7 +174,9 @@ curl -X POST http://localhost:8080/v1/siteverify \
 make test   # 59 tests
 ```
 
-## JavaScript SDK
+## SDKs
+
+### JavaScript (Browser)
 
 ```html
 <script src="https://cdn.engagelab.com/captcha/v1/engagelab-captcha.js"></script>
@@ -166,11 +203,63 @@ make test   # 59 tests
 </script>
 ```
 
-SDK features:
-- Browser fingerprinting (Canvas, WebGL, screen, timezone, plugins)
-- Behavior tracking (mouse moves, clicks, keystrokes, scroll, entropy calculation)
-- Slider and click-select challenge renderers (touch support)
-- Automatic precheck → challenge → verify flow
+Features: browser fingerprinting (Canvas/WebGL/screen/timezone), behavior tracking (mouse/click/keystroke/scroll/entropy), slider & click-select renderers with touch support, auto precheck-challenge-verify flow.
+
+### iOS (Swift Package)
+
+```swift
+import EngagelabCaptcha
+
+let captcha = EngagelabCaptcha(config: CaptchaConfig(
+    siteKey: "your_site_key",
+    scene: .register
+))
+
+let result = try await captcha.execute()
+switch result {
+case .passed(let token):
+    // Send token to your backend
+case .challengeRequired(let challengeID, let type):
+    // Show challenge UI (handled automatically with WKWebView)
+case .denied:
+    // Request blocked
+case .error(let err):
+    // Handle error
+}
+```
+
+Features: UIDevice fingerprinting, touch behavior tracking with Shannon entropy, WKWebView challenge rendering, async/await API.
+
+### Android (Kotlin)
+
+```kotlin
+import com.engagelab.captcha.EngagelabCaptcha
+import com.engagelab.captcha.CaptchaConfig
+import com.engagelab.captcha.CaptchaResult
+import com.engagelab.captcha.SceneType
+
+val captcha = EngagelabCaptcha(CaptchaConfig(
+    siteKey = "your_site_key",
+    scene = SceneType.REGISTER
+))
+
+when (val result = captcha.execute(context)) {
+    is CaptchaResult.Passed -> {
+        // Send result.token to your backend
+    }
+    is CaptchaResult.ChallengeRequired -> {
+        // Show challenge (handled automatically with WebView)
+    }
+    is CaptchaResult.Denied -> {
+        // Request blocked
+    }
+    is CaptchaResult.Error -> {
+        // Handle result.exception
+    }
+}
+```
+
+Features: emulator detection, MotionEvent behavior tracking, WebView challenge rendering with JS bridge, coroutine suspend API, kotlinx.serialization.
 
 ## Challenge Types
 
@@ -194,37 +283,44 @@ Per-scene configurable thresholds and actions:
   "action_mid": "slider",
   "action_high": "deny",
   "rate_limit_rpm": 30,
+  "ip_whitelist": ["10.0.0.0/8"],
   "ip_blacklist": ["192.0.2.0/24"]
 }
 ```
 
+## Attack Monitoring
+
+Real-time threat detection dashboard with 5 attack types:
+
+| Threat Type | Description |
+|-------------|-------------|
+| `credential_stuffing` | Distributed login attempts from Tor/proxy |
+| `bot_wave` | Registration bots from datacenter IPs |
+| `rate_abuse` | Single IP exceeding rate limits |
+| `scraping` | Systematic crawling with rotating fingerprints |
+| `brute_force` | Password brute force targeting specific accounts |
+
+Threat actions: view details, mitigate, resolve.
+
 ## Internationalization
 
-10 languages supported out of the box:
+10 languages out of the box:
 
-| Language | Code |
-|----------|------|
-| English | `en` |
-| 中文 | `zh` |
-| 日本語 | `ja` |
-| 한국어 | `ko` |
-| Español | `es` |
-| Português | `pt` |
-| Bahasa Indonesia | `id` |
-| ภาษาไทย | `th` |
-| Tiếng Việt | `vi` |
-| العربية | `ar` |
+| | | | | |
+|---|---|---|---|---|
+| English `en` | 中文 `zh` | 日本語 `ja` | 한국어 `ko` | Español `es` |
+| Português `pt` | Indonesia `id` | ไทย `th` | Tiếng Việt `vi` | العربية `ar` |
 
 ## A/B Testing
 
-Built-in experiment framework for optimizing challenge UX:
-- Deterministic variant assignment (consistent per fingerprint)
-- Weighted traffic splitting
+Built-in experiment framework for challenge optimization:
+- Deterministic variant assignment (consistent per fingerprint via SHA-256)
+- Weighted traffic splitting with configurable experiment percentage
 - Real-time metrics: impressions, completions, failures, avg duration, conversion rate
 
 ## Webhooks
 
-Real-time event notifications with HMAC-signed payloads:
+8 event types with HMAC-signed payloads and 3x exponential backoff retry:
 
 | Event | Description |
 |-------|-------------|
@@ -234,18 +330,22 @@ Real-time event notifications with HMAC-signed payloads:
 | `risk.high_detected` | High risk score detected |
 | `risk.deny_triggered` | Request denied |
 | `bot.detected` | Bot pattern identified |
+| `feedback.received` | Customer feedback submitted |
 | `rate_limit.hit` | Rate limit exceeded |
 
 ## Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
-| Backend | Go, Gin |
+| Backend | Go, Gin, bcrypt |
 | Database | PostgreSQL (auto-fallback to in-memory) |
 | Cache | Redis (auto-fallback to in-memory) |
 | Console | Next.js, React, TypeScript, Tailwind, Recharts |
-| SDK | TypeScript (browser) |
-| Auth | API Key (console), Site Key (SDK), HMAC token signing |
+| JS SDK | TypeScript (Canvas/WebGL fingerprint, behavior tracking) |
+| iOS SDK | Swift (WKWebView, touch entropy, UIDevice fingerprint) |
+| Android SDK | Kotlin (WebView, MotionEvent tracking, emulator detection) |
+| Auth | API Key + Site Key + bcrypt + HMAC token signing |
+| Monitoring | Prometheus metrics |
 | Containerization | Docker, docker-compose |
 
 ## Project Structure
@@ -253,20 +353,24 @@ Real-time event notifications with HMAC-signed payloads:
 ```
 engagelab-captcha/
 ├── cmd/server/                    # Application entrypoint
-├── sdk/js/                        # Browser JavaScript SDK
+├── sdk/
+│   ├── js/                        # Browser JavaScript SDK
+│   ├── ios/                       # iOS Swift Package
+│   └── android/                   # Android Kotlin library
 ├── internal/
 │   ├── service/
-│   │   ├── risk/                  # Risk engine + proxy/bot detectors
-│   │   ├── challenge/             # Challenge engine + i18n + A/B testing
-│   │   ├── policy/                # Policy evaluation engine
-│   │   ├── verify/                # Server-side token verification
-│   │   └── webhook/               # Webhook delivery service
-│   ├── handler/                   # 9 HTTP handlers + analytics
+│   │   ├── risk/                  # Risk engine + proxy/VPN/Tor + bot pattern detectors
+│   │   ├── challenge/             # Challenge engine + i18n (10 langs) + A/B testing
+│   │   ├── policy/                # Policy evaluation (thresholds, whitelist, rate limits)
+│   │   ├── verify/                # Server-side HMAC token verification + replay prevention
+│   │   └── webhook/               # Event delivery with HMAC signing + retry
+│   ├── handler/                   # 12 HTTP handlers (30 endpoints)
+│   ├── metrics/                   # Prometheus metrics collector
 │   ├── middleware/                # API key + site key auth, CORS
-│   ├── model/                     # Data models (6 files)
+│   ├── model/                     # Data models (7 files)
 │   ├── repository/                # In-memory store with seed data
 │   └── router/                    # Route wiring + dependency injection
-├── migrations/                    # PostgreSQL schema
+├── migrations/                    # 2 PostgreSQL migrations
 ├── web/console/                   # Next.js dashboard (5 pages)
 ├── Dockerfile
 ├── docker-compose.yaml
@@ -331,7 +435,7 @@ EngageLab CAPTCHA 是一个风险优先的自适应验证平台，保护 Web 应
 
 分值 0-100。风险等级：低 (0-15)、中 (16-40)、高 (41-70)、极高 (71+)。
 
-## API 端点 (21 个)
+## API 端点 (30 个)
 
 ### SDK 端点 (site_key 认证)
 | 方法 | 路径 | 说明 |
@@ -345,19 +449,45 @@ EngageLab CAPTCHA 是一个风险优先的自适应验证平台，保护 Web 应
 |------|------|------|
 | `POST` | `/v1/siteverify` | 校验挑战 token (secret key) |
 
+### 认证（无需鉴权）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/v1/auth/register` | 注册用户 + 创建组织 + 默认应用 |
+| `POST` | `/v1/auth/login` | 邮箱密码登录 |
+
 ### 控制台管理 (API key 认证)
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | `POST/GET` | `/v1/apps` | 创建 / 列出应用 |
 | `GET/DELETE` | `/v1/apps/:id` | 获取 / 删除应用 |
 | `POST/GET` | `/v1/scenes` | 创建 / 列出场景 |
+| `GET` | `/v1/policies` | 列出策略 |
 | `POST/GET/DELETE` | `/v1/webhooks` | 管理 Webhook |
 | `POST` | `/v1/events/feedback` | 提交误杀/漏报反馈 |
+| `POST/GET` | `/v1/account/api-keys` | 生成 / 列出 API Key |
+
+### 分析与监控
+| 方法 | 路径 | 说明 |
+|------|------|------|
 | `GET` | `/v1/stats/dashboard` | 仪表盘统计 |
 | `GET` | `/v1/analytics/countries` | 国家分布分析 |
 | `GET` | `/v1/analytics/devices` | 浏览器/平台/OS 分析 |
 | `GET` | `/v1/analytics/challenges` | 挑战类型效果 |
 | `GET` | `/v1/analytics/risk-trends` | 7 天风险趋势 |
+
+### 攻击监控
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/v1/threats` | 威胁事件列表 |
+| `GET` | `/v1/threats/dashboard` | 威胁仪表盘（时间线、Top IP、严重度）|
+| `POST` | `/v1/threats/:id/mitigate` | 标记威胁已缓解 |
+
+### 基础设施
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/v1/i18n/:lang` | 挑战 UI 翻译（10 种语言）|
+| `GET` | `/health` | 健康检查 |
+| `GET` | `/metrics` | Prometheus 指标 |
 
 ## 快速开始
 
@@ -375,9 +505,7 @@ make dev
 
 ### 启动控制台
 ```bash
-cd web/console
-npm install
-npm run dev
+cd web/console && npm install && npm run dev
 ```
 
 ### Docker 启动
@@ -387,17 +515,23 @@ docker-compose up -d
 
 ### 测试 API
 ```bash
-# 正常用户 → 放行
-curl -X POST http://localhost:8080/v1/risk/precheck \
-  -H "X-Site-Key: sk_demo_site_key_abc" \
+# 注册账号
+curl -X POST http://localhost:8080/v1/auth/register \
   -H "Content-Type: application/json" \
+  -d '{"email":"dev@example.com","password":"SecureP@ss1","name":"Dev","company":"MyCo"}'
+
+# 正常用户 → 放行 (score=5)
+curl -X POST http://localhost:8080/v1/risk/precheck \
+  -H "X-Site-Key: sk_demo_site_key_abc" -H "Content-Type: application/json" \
   -d '{"app_id":"app-001","ip":"8.8.8.8","ua":"Mozilla/5.0 Chrome/120","fingerprint":"fp_user","behavior_data":{"mouse_moves":80,"mouse_entropy":0.7,"duration_ms":6000}}'
 
-# Headless Bot → 拦截
+# Headless Bot → 拦截 (score=87)
 curl -X POST http://localhost:8080/v1/risk/precheck \
-  -H "X-Site-Key: sk_demo_site_key_abc" \
-  -H "Content-Type: application/json" \
+  -H "X-Site-Key: sk_demo_site_key_abc" -H "Content-Type: application/json" \
   -d '{"app_id":"app-001","ip":"159.89.1.1","ua":"HeadlessChrome","fingerprint":"fp_bot","behavior_data":{"mouse_moves":0,"duration_ms":50,"webdriver":true}}'
+
+# 查看威胁仪表盘
+curl http://localhost:8080/v1/threats/dashboard -H "X-API-Key: ak_demo_key_123456"
 ```
 
 ### 运行测试
@@ -405,63 +539,86 @@ curl -X POST http://localhost:8080/v1/risk/precheck \
 make test   # 59 个测试
 ```
 
-## JavaScript SDK
+## SDK
 
+### JavaScript (浏览器)
 ```html
 <script src="https://cdn.engagelab.com/captcha/v1/engagelab-captcha.js"></script>
 <script>
   EngagelabCaptcha.init({
-    siteKey: 'your_site_key',
-    scene: 'register',
-    container: '#captcha',
-    onSuccess: (token) => {
-      // 将 token 发送到后端做服务端校验
-    },
+    siteKey: 'your_site_key', scene: 'register', container: '#captcha',
+    onSuccess: (token) => { /* 发送 token 到后端校验 */ },
   });
-
-  // 表单提交时触发验证
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    await EngagelabCaptcha.execute();
-  });
+  form.addEventListener('submit', (e) => { e.preventDefault(); EngagelabCaptcha.execute(); });
 </script>
 ```
+
+### iOS (Swift)
+```swift
+let captcha = EngagelabCaptcha(config: CaptchaConfig(siteKey: "sk_...", scene: .register))
+let result = try await captcha.execute()
+switch result {
+case .passed(let token): /* 使用 token */
+case .challengeRequired: /* 自动显示 WKWebView 挑战 */
+case .denied: /* 已拦截 */
+}
+```
+
+### Android (Kotlin)
+```kotlin
+val captcha = EngagelabCaptcha(CaptchaConfig(siteKey = "sk_...", scene = SceneType.REGISTER))
+when (val result = captcha.execute(context)) {
+    is CaptchaResult.Passed -> { /* 使用 result.token */ }
+    is CaptchaResult.ChallengeRequired -> { /* 自动 WebView 挑战 */ }
+    is CaptchaResult.Denied -> { /* 已拦截 */ }
+}
+```
+
+## 攻击监控
+
+实时威胁检测，5 种攻击类型：
+
+| 类型 | 说明 |
+|------|------|
+| `credential_stuffing` | Tor/代理分布式撞库 |
+| `bot_wave` | 数据中心 IP 注册机波次 |
+| `rate_abuse` | 单 IP 超频率限制 |
+| `scraping` | 轮换指纹系统化爬取 |
+| `brute_force` | 密码暴力破解 |
 
 ## 挑战类型
 
 | 类型 | 触发条件 | 用户体验 |
 |------|---------|---------|
-| **无感** | 低风险 (score < 15) | 零摩擦，静默签发 token |
+| **无感** | 低风险 (< 15) | 零摩擦，静默签发 token |
 | **滑块** | 中风险 (15-50) | 拖动滑块到目标位置 |
 | **点选** | 高风险 (50-70) | 按正确顺序点击目标 |
 | **拦截** | 极高风险 (> 70) | 直接拒绝请求 |
 
 ## 国际化
 
-开箱即用支持 10 种语言：en / zh / ja / ko / es / pt / id / th / vi / ar
-
-## 应用场景
-
-| 场景 | 防护能力 |
-|------|---------|
-| **注册** | 防注册机、虚假账号 |
-| **登录** | 防撞库、暴力破解 |
-| **营销活动** | 防薅羊毛、优惠券滥用 |
-| **评论发帖** | 防垃圾内容 |
-| **API 调用** | 防脚本刷爆 |
-| **票务/抢购** | 防黄牛机器人 |
+开箱支持 10 种语言：en / zh / ja / ko / es / pt / id / th / vi / ar
 
 ## 技术栈
 
 | 组件 | 技术 |
 |------|------|
-| 后端 | Go, Gin |
+| 后端 | Go, Gin, bcrypt |
 | 数据库 | PostgreSQL（自动降级内存）|
 | 缓存 | Redis（自动降级内存）|
 | 控制台 | Next.js, React, TypeScript, Tailwind, Recharts |
-| SDK | TypeScript (浏览器) |
-| 认证 | API Key (控制台) + Site Key (SDK) + HMAC 签名 |
+| JS SDK | TypeScript (Canvas/WebGL 指纹, 行为追踪) |
+| iOS SDK | Swift (WKWebView, 触控熵值, UIDevice 指纹) |
+| Android SDK | Kotlin (WebView, MotionEvent 追踪, 模拟器检测) |
+| 认证 | API Key + Site Key + bcrypt + HMAC 签名 |
+| 监控 | Prometheus 指标 |
 | 容器化 | Docker, docker-compose |
+
+## 目标客户
+
+- 电商 / 金融科技 / 游戏 / 社交
+- 在线教育 / SaaS / 票务平台
+- 出海 App / 开发者平台
 
 ## 许可证
 
