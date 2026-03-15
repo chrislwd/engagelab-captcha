@@ -338,6 +338,18 @@ func (s *MemoryStore) GetPolicy(id string) (*model.Policy, error) {
 	return p, nil
 }
 
+// GetPolicyByScene returns the first enabled policy matching the given scene type.
+func (s *MemoryStore) GetPolicyByScene(sceneType model.SceneType) (*model.Policy, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.policies {
+		if p.SceneType == sceneType && p.Enabled {
+			return p, nil
+		}
+	}
+	return nil, fmt.Errorf("policy not found for scene type: %s", sceneType)
+}
+
 // ListPolicies returns all policies.
 func (s *MemoryStore) ListPolicies() []*model.Policy {
 	s.mu.RLock()

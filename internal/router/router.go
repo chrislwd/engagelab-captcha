@@ -49,6 +49,10 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 	analyticsH := handler.NewAnalyticsHandler()
 	authH := handler.NewAuthHandler(store)
 	threatsH := handler.NewThreatsHandler()
+	brandManager := challengeEngine.NewBrandManager()
+	brandingH := handler.NewBrandingHandler(brandManager)
+	blocklistStore := handler.NewBlocklistStore()
+	blocklistH := handler.NewBlocklistHandler(blocklistStore)
 
 	// --- Health ---
 	r.GET("/health", func(c *gin.Context) {
@@ -130,7 +134,20 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 		// Account / API Keys
 		console.POST("/account/api-keys", authH.GenerateAPIKey)
 		console.GET("/account/api-keys", authH.ListAPIKeys)
+
+		// Branding
+		console.GET("/branding/:id", brandingH.Get)
+		console.PUT("/branding/:id", brandingH.Set)
+		console.DELETE("/branding/:id", brandingH.Delete)
+
+		// Blocklist / Allowlist
+		console.POST("/blocklist", blocklistH.Create)
+		console.GET("/blocklist", blocklistH.List)
+		console.DELETE("/blocklist/:id", blocklistH.Delete)
 	}
+
+	// Public branding CSS (for SDK to fetch, no auth)
+	r.GET("/v1/branding/:id/css", brandingH.GetCSS)
 
 	return r
 }
