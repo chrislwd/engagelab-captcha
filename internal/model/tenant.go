@@ -21,14 +21,4 @@ type Tenant struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// User represents an authenticated console user belonging to a tenant.
-type User struct {
-	ID           string    `json:"id"`
-	TenantID     string    `json:"tenant_id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	Name         string    `json:"name"`
-	Role         string    `json:"role"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-}
+// User type is defined in user.go

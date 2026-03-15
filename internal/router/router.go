@@ -7,6 +7,7 @@ import (
 
 	"github.com/engagelab/captcha/internal/config"
 	"github.com/engagelab/captcha/internal/handler"
+	"github.com/engagelab/captcha/internal/metrics"
 	"github.com/engagelab/captcha/internal/middleware"
 	"github.com/engagelab/captcha/internal/repository"
 	challengeEngine "github.com/engagelab/captcha/internal/service/challenge"
@@ -16,7 +17,6 @@ import (
 	"github.com/engagelab/captcha/internal/service/webhook"
 )
 
-// New creates and configures the Gin router with all routes, handlers, and middleware.
 func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 	if cfg.IsProduction() {
 		gin.SetMode(gin.ReleaseMode)
@@ -26,18 +26,18 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 	r.Use(gin.Logger())
 	r.Use(gin.Recovery())
 	r.Use(middleware.CORS())
+	r.Use(metrics.RequestMetrics(metrics.Global))
 
-	// Initialize service engines.
+	// Services
 	risk := riskEngine.NewEngine()
 	policy := policyEngine.NewEngine()
 	challenge := challengeEngine.NewEngine(cfg.JWTSecret)
 	verify := verifyService.NewService(store, cfg.JWTSecret)
-
-	// Webhook
 	webhookStore := webhook.NewMemoryStore()
-	_ = webhook.NewService(webhookStore) // available for event emission
+	_ = webhook.NewService(webhookStore)
+	i18n := challengeEngine.NewI18n()
 
-	// Initialize handlers.
+	// Handlers
 	precheckH := handler.NewPrecheckHandler(store, risk, policy, challenge)
 	challengeH := handler.NewChallengeHandler(store, challenge)
 	siteVerifyH := handler.NewSiteVerifyHandler(verify)
@@ -47,17 +47,20 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 	statsH := handler.NewStatsHandler(store)
 	webhookH := handler.NewWebhookHandler(webhookStore)
 	analyticsH := handler.NewAnalyticsHandler()
+	authH := handler.NewAuthHandler(store)
+	threatsH := handler.NewThreatsHandler()
 
-	// Health check endpoint (no auth).
+	// --- Health ---
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"service": "engagelab-captcha",
-			"version": "1.1.0",
+			"status": "healthy", "service": "engagelab-captcha", "version": "1.2.0",
 		})
 	})
 
-	// ----- SDK endpoints (site_key auth) -----
+	// --- Metrics (Prometheus) ---
+	r.GET("/metrics", metrics.Global.Handler())
+
+	// --- SDK endpoints (site_key auth) ---
 	sdk := r.Group("/v1")
 	sdk.Use(middleware.SiteKeyAuth(store))
 	{
@@ -66,38 +69,46 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 		sdk.POST("/challenge/verify", challengeH.Verify)
 	}
 
-	// ----- Server-side verification (secret key in body, no middleware auth) -----
+	// --- Public endpoints (no auth) ---
 	r.POST("/v1/siteverify", siteVerifyH.Handle)
-
-	// I18n endpoint (no auth, used by SDK)
-	i18n := challengeEngine.NewI18n()
 	r.GET("/v1/i18n/:lang", func(c *gin.Context) {
 		lang := c.Param("lang")
 		c.JSON(http.StatusOK, gin.H{
-			"lang":         lang,
-			"translations": i18n.GetAll(lang),
-			"supported":    i18n.SupportedLanguages(),
+			"lang": lang, "translations": i18n.GetAll(lang), "supported": i18n.SupportedLanguages(),
 		})
 	})
 
-	// ----- Console/management endpoints (API key auth) -----
+	// --- Auth endpoints (no auth required) ---
+	auth := r.Group("/v1/auth")
+	{
+		auth.POST("/register", authH.Register)
+		auth.POST("/login", authH.Login)
+	}
+
+	// --- Console endpoints (API key auth) ---
 	console := r.Group("/v1")
 	console.Use(middleware.APIKeyAuth(store))
 	{
-		// Apps CRUD
+		// Apps
 		console.POST("/apps", appH.Create)
 		console.GET("/apps", appH.List)
 		console.GET("/apps/:id", appH.Get)
 		console.DELETE("/apps/:id", appH.Delete)
 
-		// Scenes CRUD
+		// Scenes
 		console.POST("/scenes", sceneH.Create)
 		console.GET("/scenes", sceneH.List)
+
+		// Policies (read from store)
+		console.GET("/policies", func(c *gin.Context) {
+			policies := store.ListPolicies()
+			c.JSON(http.StatusOK, gin.H{"policies": policies})
+		})
 
 		// Feedback
 		console.POST("/events/feedback", feedbackH.Handle)
 
-		// Dashboard stats
+		// Stats
 		console.GET("/stats/dashboard", statsH.Dashboard)
 
 		// Webhooks
@@ -110,6 +121,15 @@ func New(cfg *config.Config, store *repository.MemoryStore) *gin.Engine {
 		console.GET("/analytics/devices", analyticsH.DeviceBreakdown)
 		console.GET("/analytics/challenges", analyticsH.ChallengeBreakdown)
 		console.GET("/analytics/risk-trends", analyticsH.RiskTrends)
+
+		// Threats / Attack Monitoring
+		console.GET("/threats", threatsH.List)
+		console.GET("/threats/dashboard", threatsH.Dashboard)
+		console.POST("/threats/:id/mitigate", threatsH.Mitigate)
+
+		// Account / API Keys
+		console.POST("/account/api-keys", authH.GenerateAPIKey)
+		console.GET("/account/api-keys", authH.ListAPIKeys)
 	}
 
 	return r

@@ -67,13 +67,11 @@ func (s *MemoryStore) seed() {
 	// Seed user
 	user := &model.User{
 		ID:           "user-001",
-		TenantID:     tenant.ID,
 		Email:        "admin@democorp.com",
 		PasswordHash: "$2a$10$placeholder",
 		Name:         "Admin User",
-		Role:         "admin",
+		Status:       "active",
 		CreatedAt:    now,
-		UpdatedAt:    now,
 	}
 	s.users[user.ID] = user
 
@@ -189,6 +187,14 @@ func (s *MemoryStore) seed() {
 }
 
 // --- Tenant ---
+
+// CreateTenant adds a new tenant.
+func (s *MemoryStore) CreateTenant(t *model.Tenant) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tenants[t.ID] = t
+	s.apiKeyIndex[t.APIKey] = t.ID
+}
 
 // GetTenantByAPIKey looks up a tenant by its API key.
 func (s *MemoryStore) GetTenantByAPIKey(apiKey string) (*model.Tenant, error) {
@@ -330,6 +336,17 @@ func (s *MemoryStore) GetPolicy(id string) (*model.Policy, error) {
 		return nil, fmt.Errorf("policy not found: %s", id)
 	}
 	return p, nil
+}
+
+// ListPolicies returns all policies.
+func (s *MemoryStore) ListPolicies() []*model.Policy {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var result []*model.Policy
+	for _, p := range s.policies {
+		result = append(result, p)
+	}
+	return result
 }
 
 // --- Challenge Session ---
