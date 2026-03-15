@@ -32,6 +32,10 @@ type Engine struct {
 
 	// Datacenter CIDR ranges (simplified list of well-known cloud provider ranges)
 	datacenterCIDRs []*net.IPNet
+
+	// Enhanced detectors
+	proxyDetector *ProxyDetector
+	botDetector   *BotPatternDetector
 }
 
 // NewEngine creates a new risk assessment engine.
@@ -65,6 +69,10 @@ func NewEngine() *Engine {
 		e.badIPs[ip] = true
 	}
 
+	// Initialize enhanced detectors
+	e.proxyDetector = NewProxyDetector()
+	e.botDetector = NewBotPatternDetector()
+
 	return e
 }
 
@@ -92,6 +100,16 @@ func (e *Engine) Evaluate(ip, userAgent, fingerprint string, behaviorData map[st
 	behScore, behLabels := e.evaluateBehavior(behaviorData)
 	totalScore += behScore
 	labels = append(labels, behLabels...)
+
+	// 5. Enhanced proxy/VPN/Tor detection
+	proxyResult := e.proxyDetector.Check(ip)
+	totalScore += proxyResult.Score
+	labels = append(labels, proxyResult.Labels...)
+
+	// 6. Advanced bot pattern detection
+	botResult := e.botDetector.Analyze(userAgent, behaviorData)
+	totalScore += botResult.Score
+	labels = append(labels, botResult.Labels...)
 
 	// Clamp to 0-100.
 	if totalScore > 100 {
